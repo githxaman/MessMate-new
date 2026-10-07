@@ -1,0 +1,21 @@
+{
+  "name": "messmate-backend",
+  "version": "1.0.0",
+  "description": "MessMate - Smart Hostel Dining Management System API",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "csv-parse": "^7.0.2",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.0",
+    "express-validator": "^7.2.0",
+    "firebase-admin": "^14.5.0",
+    "mongoose": "^8.24.4",
+    "multer": "^2.4.0"
+  }
+}
