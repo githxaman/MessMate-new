@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { menuAPI, mealAPI, leaveAPI } from '../services/api';
 import MenuCard from '../components/MenuCard';
 import MealCard from '../components/MealCard';
+
+const todayDate = () => {
+  const date = new Date();
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
 
 const prefLabel = {
   vegetarian: '🥗 Vegetarian',
@@ -12,31 +17,39 @@ const prefLabel = {
 
 const StudentDashboard = () => {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [menus, setMenus] = useState([]);
   const [meals, setMeals] = useState([]);
   const [upcomingLeave, setUpcomingLeave] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadDashboard = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+    try {
+      const [menuRes, mealRes, leaveRes] = await Promise.all([
+        menuAPI.getAll({ date: todayDate() }),
+        mealAPI.getToday(),
+        leaveAPI.getUpcoming(),
+      ]);
+      setMenus(menuRes.data?.menus || []);
+      setMeals(mealRes.data?.meals || []);
+      setUpcomingLeave(leaveRes.data?.leave || null);
+    } catch (loadError) {
+      console.error('Failed to load student dashboard:', loadError);
+      setError(loadError.response?.data?.message || 'Could not refresh your dining overview. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const today = new Date().toISOString().split('T')[0];
-        const [menuRes, mealRes, leaveRes] = await Promise.all([
-          menuAPI.getAll({ date: today }).catch(() => ({ data: { menus: [] } })),
-          mealAPI.getToday().catch(() => ({ data: { meals: [] } })),
-          leaveAPI.getUpcoming().catch(() => ({ data: { leave: null } })),
-        ]);
-        setMenus(menuRes.data?.menus || []);
-        setMeals(mealRes.data?.meals || []);
-        setUpcomingLeave(leaveRes.data?.leave || null);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+    loadDashboard();
+  }, [loadDashboard]);
 
   if (loading) {
     return (
@@ -74,7 +87,19 @@ const StudentDashboard = () => {
             Hostel: <strong>{profile?.hostel || 'Hostel A'}</strong> | Room: <strong>{profile?.roomNumber || 'N/A'}</strong> | Preference: <strong>{prefLabel[profile?.foodPreference] || '🥗 Vegetarian'}</strong>
           </p>
         </div>
+        <button type="button" className="btn btn-outline" onClick={() => loadDashboard(true)} disabled={refreshing}>
+          <span aria-hidden="true">↻</span> {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
+
+      {error && (
+        <div className="alert alert-error dashboard-alert" role="alert">
+          <span>{error}</span>
+          <button type="button" className="btn btn-sm btn-outline" onClick={() => loadDashboard(true)} disabled={refreshing}>
+            Try again
+          </button>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         {/* Stat / Action Cards */}
@@ -82,8 +107,8 @@ const StudentDashboard = () => {
           <div className="stat-card">
             <div className="stat-icon-wrapper stat-icon-orange">🍽️</div>
             <div className="stat-info">
-              <div className="stat-value">{meals.filter(m => m.status === 'taking').length}/3</div>
-              <div className="stat-label">Meals Selected Today</div>
+              <div className="stat-value">{meals.filter((meal) => meal.status).length}/3</div>
+              <div className="stat-label">Meal Checks Completed</div>
             </div>
           </div>
 
@@ -108,13 +133,26 @@ const StudentDashboard = () => {
           <h2>Today&apos;s Meal Checks</h2>
           <div className="meal-cards-row">
             {meals.map((m) => (
-              <MealCard key={m.mealType} mealType={m.mealType} checked={m.checked} status={m.status} />
+              <MealCard
+                key={m.mealType}
+                mealType={m.mealType}
+                checked={m.checked}
+                status={m.status}
+                onCheck={() => navigate('/meal-check')}
+              />
             ))}
+            {!meals.length && <p className="text-muted">Your meal check schedule will appear here.</p>}
           </div>
         </section>
 
         <section className="dashboard-section">
-          <h2>Quick Actions</h2>
+          <div className="section-heading-row">
+            <div>
+              <span className="student-section-kicker">YOUR DINING SHORTCUTS</span>
+              <h2>Quick Actions</h2>
+            </div>
+            <span className="student-today-badge">📅 {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+          </div>
           <div className="quick-actions">
             <Link to="/meal-check" className="action-btn">✓ Check Today's Meal</Link>
             <Link to="/menu" className="action-btn">📋 View Today's Menu</Link>
@@ -124,7 +162,7 @@ const StudentDashboard = () => {
           </div>
         </section>
 
-        {upcomingLeave && (
+        {upcomingLeave ? (
           <section className="dashboard-section alert-info-box">
             <h3>📅 Upcoming Approved Leave</h3>
             <p>
@@ -132,10 +170,22 @@ const StudentDashboard = () => {
               {new Date(upcomingLeave.toDate).toLocaleDateString()} ({upcomingLeave.status})
             </p>
           </section>
+        ) : (
+          <section className="student-leave-prompt">
+            <span aria-hidden="true">✈️</span>
+            <div><strong>Going away?</strong><p>Apply for leave so the kitchen can plan the right portions.</p></div>
+            <Link to="/leave" className="btn btn-outline btn-sm">Apply for leave</Link>
+          </section>
         )}
 
         <section className="dashboard-section full-width">
-          <h2>Today&apos;s Menu</h2>
+          <div className="section-heading-row">
+            <div>
+              <span className="student-section-kicker">MADE FOR YOUR PREFERENCE</span>
+              <h2>Today&apos;s Menu</h2>
+            </div>
+            <Link className="admin-text-link" to="/menu">Full menu →</Link>
+          </div>
           {menus.length ? (
             <div className="menu-grid">
               {menus.map((menu) => (
@@ -143,7 +193,11 @@ const StudentDashboard = () => {
               ))}
             </div>
           ) : (
-            <p className="text-muted">No menu published for today yet.</p>
+            <div className="student-empty-menu">
+              <span aria-hidden="true">🍲</span>
+              <p>No menu published for today yet.</p>
+              <Link to="/menu?view=weekly">Take a look at this week’s menu →</Link>
+            </div>
           )}
         </section>
       </div>

@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { leaveAPI } from '../services/api';
 
+const todayDate = () => {
+  const today = new Date();
+  return new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+
 const statusBadge = {
   pending: 'pending',
   approved: 'success',
@@ -13,15 +18,22 @@ const LeaveRequest = () => {
   const [leaves, setLeaves] = useState([]);
   const [form, setForm] = useState({ fromDate: '', toDate: '', reason: '' });
   const [loading, setLoading] = useState(false);
+  const [loadingLeaves, setLoadingLeaves] = useState(true);
+  const [reviewingId, setReviewingId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const loadLeaves = async () => {
+    setLoadingLeaves(true);
     try {
       const { data } = await leaveAPI.getAll();
       setLeaves(data.leaves || []);
-    } catch (err) {
-      console.error(err);
+      setError('');
+    } catch (loadError) {
+      console.error('Failed to load leave requests:', loadError);
+      setError(loadError.response?.data?.message || 'Could not load leave requests. Please try again.');
+    } finally {
+      setLoadingLeaves(false);
     }
   };
 
@@ -38,7 +50,7 @@ const LeaveRequest = () => {
       await leaveAPI.create(form);
       setMessage('Leave request submitted successfully!');
       setForm({ fromDate: '', toDate: '', reason: '' });
-      loadLeaves();
+      await loadLeaves();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit leave');
     } finally {
@@ -47,12 +59,17 @@ const LeaveRequest = () => {
   };
 
   const handleReview = async (id, status) => {
+    setReviewingId(id);
+    setError('');
+    setMessage('');
     try {
       await leaveAPI.updateStatus(id, { status });
       setMessage(`Leave request ${status}`);
-      loadLeaves();
+      await loadLeaves();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update leave');
+    } finally {
+      setReviewingId('');
     }
   };
 
@@ -60,29 +77,38 @@ const LeaveRequest = () => {
     <div className="leave-page container main-content">
       <div className="dashboard-header">
         <div className="dashboard-title">
-          <h1>📝 Leave Request Management</h1>
+          <span className="student-section-kicker">PLAN YOUR TIME AWAY</span>
+          <h1>📝 Leave Request</h1>
           <p className="dashboard-subtitle">
-            Approved leaves automatically deduct student headcount from daily meal preparation targets!
+            Let the mess know when you’ll be away — approved leave helps us prepare just the right amount.
           </p>
         </div>
+        <button type="button" className="btn btn-outline" onClick={loadLeaves} disabled={loadingLeaves}>
+          ↻ {loadingLeaves ? 'Refreshing…' : 'Refresh requests'}
+        </button>
       </div>
 
       {message && <div className="alert alert-success">{message}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
       {role === 'student' && (
-        <form onSubmit={handleSubmit} className="table-card" style={{ marginBottom: '2rem' }}>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: '800', marginBottom: '1.25rem' }}>
-            ✈️ Apply for Leave
-          </h3>
+        <form onSubmit={handleSubmit} className="table-card leave-form-card" style={{ marginBottom: '2rem' }}>
+          <div className="leave-form-heading">
+            <span aria-hidden="true">✈️</span>
+            <div><h3>Apply for leave</h3><p>Choose the dates you’ll be away from the hostel.</p></div>
+          </div>
+          {form.fromDate && form.toDate && form.toDate < form.fromDate && (
+            <div className="alert alert-error">End date must be the same as or later than the start date.</div>
+          )}
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="fromDate">From Date *</label>
               <input
                 id="fromDate"
                 type="date"
+                min={todayDate()}
                 value={form.fromDate}
-                onChange={(e) => setForm({ ...form, fromDate: e.target.value })}
+                onChange={(e) => setForm({ ...form, fromDate: e.target.value, toDate: form.toDate < e.target.value ? '' : form.toDate })}
                 required
               />
             </div>
@@ -91,6 +117,7 @@ const LeaveRequest = () => {
               <input
                 id="toDate"
                 type="date"
+                min={form.fromDate || todayDate()}
                 value={form.toDate}
                 onChange={(e) => setForm({ ...form, toDate: e.target.value })}
                 required
@@ -107,13 +134,16 @@ const LeaveRequest = () => {
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
               required
               rows={3}
+              maxLength={500}
+              aria-describedby="leave-reason-count"
             />
+            <small id="leave-reason-count" className="form-hint">{form.reason.length}/500 characters</small>
           </div>
 
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={loading}
+            disabled={loading || (form.fromDate && form.toDate && form.toDate < form.fromDate)}
             style={{ marginTop: '1rem' }}
           >
             {loading ? 'Submitting Leave...' : 'Submit Leave Application'}
@@ -124,7 +154,17 @@ const LeaveRequest = () => {
       <div className="table-card">
         <div className="table-header">
           <h3>{role === 'student' ? 'My Submitted Leaves' : 'Student Leave Requests'}</h3>
+          <span className="leave-request-count">{leaves.length} {leaves.length === 1 ? 'request' : 'requests'}</span>
         </div>
+        {loadingLeaves ? (
+          <div className="student-empty-menu">Loading leave requests…</div>
+        ) : leaves.length === 0 ? (
+          <div className="student-empty-menu">
+            <span aria-hidden="true">🗓️</span>
+            <p>No leave requests yet.</p>
+            {role === 'student' && <small>Your applications and their status will appear here.</small>}
+          </div>
+        ) : (
         <div className="table-responsive">
           <table className="data-table">
             <thead>
@@ -139,14 +179,7 @@ const LeaveRequest = () => {
               </tr>
             </thead>
             <tbody>
-              {leaves.length === 0 ? (
-                <tr>
-                  <td colSpan={role === 'student' ? 4 : 7} className="empty-state">
-                    No leave requests found.
-                  </td>
-                </tr>
-              ) : (
-                leaves.map((leave) => (
+              {leaves.map((leave) => (
                   <tr key={leave._id}>
                     {role !== 'student' && <td><strong>{leave.userId?.name || 'Student'}</strong></td>}
                     {role !== 'student' && <td><code>{leave.userId?.studentId || 'N/A'}</code></td>}
@@ -165,13 +198,15 @@ const LeaveRequest = () => {
                             <button
                               type="button"
                               className="btn btn-sm btn-eco"
+                              disabled={reviewingId === leave._id}
                               onClick={() => handleReview(leave._id, 'approved')}
                             >
-                              Approve
+                              {reviewingId === leave._id ? 'Updating…' : 'Approve'}
                             </button>
                             <button
                               type="button"
                               className="btn btn-sm btn-danger"
+                              disabled={reviewingId === leave._id}
                               onClick={() => handleReview(leave._id, 'rejected')}
                             >
                               Reject
@@ -183,11 +218,11 @@ const LeaveRequest = () => {
                       </td>
                     )}
                   </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

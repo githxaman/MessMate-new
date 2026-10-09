@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
 import Home from './pages/Home';
 import Login from './pages/Login';
+import AdminLogin from './pages/AdminLogin';
 import Register from './pages/Register';
 import DashboardRouter from './pages/DashboardRouter';
 import Menu from './pages/Menu';
@@ -36,6 +37,7 @@ function App() {
 
             <Route element={<PublicRoute />}>
               <Route path="login" element={<Login />} />
+              <Route path="admin/login" element={<AdminLogin />} />
               <Route path="register" element={<Register />} />
             </Route>
 
@@ -63,6 +65,7 @@ function App() {
             </Route>
 
             <Route element={<ProtectedRoute roles={['admin']} />}>
+              <Route path="admin" element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="admin/dashboard" element={<AdminDashboard />} />
               <Route path="admin/users" element={<AdminUsers />} />
               <Route path="admin/staff" element={<AdminStaff />} />

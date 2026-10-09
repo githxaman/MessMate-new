@@ -8,18 +8,26 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+let demoAuthToken = null;
+
+export const setDemoAuthToken = (token) => {
+  demoAuthToken = token;
+};
+
 api.interceptors.request.use(async (config) => {
   if (auth?.currentUser && typeof auth.currentUser.getIdToken === 'function') {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      config.headers.Authorization = `Bearer ${token}`;
-    } catch (_) {}
+    const token = await auth.currentUser.getIdToken();
+    config.headers.Authorization = `Bearer ${token}`;
+  } else if (demoAuthToken) {
+    config.headers.Authorization = `Bearer ${demoAuthToken}`;
   }
   return config;
 });
 
 export const userAPI = {
   register: (data) => api.post('/users/register', data),
+  registerDemoStudent: (data) => api.post('/users/demo/register', data),
+  loginDemoStudent: (data) => api.post('/users/demo/login', data),
   verifyStudent: (data) => api.post('/authorized-students/verify', data),
   getProfile: () => api.get('/users/profile'),
   updateProfile: (data) => api.put('/users/profile', data),

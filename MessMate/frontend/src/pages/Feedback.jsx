@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { feedbackAPI } from '../services/api';
 
@@ -16,14 +17,20 @@ const Feedback = () => {
     mealType: 'general',
   });
   const [loading, setLoading] = useState(false);
+  const [loadingFeedback, setLoadingFeedback] = useState(true);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
   const loadFeedback = async () => {
+    setLoadingFeedback(true);
     try {
       const { data } = await feedbackAPI.getAll();
       setFeedbackList(data.feedback || []);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load feedback:', err);
+      setError(err.response?.data?.message || 'Could not load feedback. Please try again.');
+    } finally {
+      setLoadingFeedback(false);
     }
   };
 
@@ -34,13 +41,15 @@ const Feedback = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
+    setMessage('');
     try {
       await feedbackAPI.create(form);
       setMessage('Thank you for your feedback!');
       setForm({ ...form, comment: '' });
-      loadFeedback();
+      await loadFeedback();
     } catch (err) {
-      console.error(err);
+      setError(err.response?.data?.message || 'Could not submit feedback. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -55,6 +64,8 @@ const Feedback = () => {
             key={n}
             type="button"
             className={`star-btn ${value >= n ? 'active' : ''}`}
+            aria-label={`${n} out of 5 for ${label}`}
+            aria-pressed={value === n}
             onClick={() => setForm({ ...form, [name]: n })}
           >
             ★
@@ -66,15 +77,22 @@ const Feedback = () => {
 
   return (
     <div className="feedback-page container">
-      <div className="page-header">
-        <h1>Feedback</h1>
+      <div className="page-header student-page-heading">
+        <div>
+          <span className="student-section-kicker">HELP US SERVE YOU BETTER</span>
+          <h1>⭐ Dining Feedback</h1>
+          <p className="text-muted">Your feedback helps shape better meals for everyone.</p>
+        </div>
+        <Link to="/dashboard" className="btn btn-outline">← Dashboard</Link>
       </div>
 
       {message && <div className="alert alert-success">{message}</div>}
+      {error && <div className="alert alert-error" role="alert">{error}</div>}
 
       {role === 'student' && (
         <form onSubmit={handleSubmit} className="form-card">
-          <h2>Share Your Experience</h2>
+          <h2>How was your meal?</h2>
+          <p className="text-muted">Rate each part of your dining experience.</p>
           <RatingInput label="Overall Rating" name="rating" value={form.rating} />
           <RatingInput label="Food Quality" name="foodQuality" value={form.foodQuality} />
           <RatingInput label="Taste" name="taste" value={form.taste} />
@@ -107,7 +125,7 @@ const Feedback = () => {
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            Submit Feedback
+            {loading ? 'Sending feedback…' : 'Send feedback'}
           </button>
         </form>
       )}
@@ -115,6 +133,7 @@ const Feedback = () => {
       <div className="table-card">
         <h2>{role === 'student' ? 'My Feedback' : 'Recent Feedback'}</h2>
         <div className="feedback-list">
+          {loadingFeedback && <p className="text-muted">Loading feedback…</p>}
           {feedbackList.map((fb) => (
             <div key={fb._id} className="feedback-item">
               <div className="feedback-header">
@@ -127,7 +146,7 @@ const Feedback = () => {
               </small>
             </div>
           ))}
-          {feedbackList.length === 0 && <p className="text-muted">No feedback yet.</p>}
+          {!loadingFeedback && feedbackList.length === 0 && !error && <p className="text-muted">Your feedback history will appear here.</p>}
         </div>
       </div>
     </div>

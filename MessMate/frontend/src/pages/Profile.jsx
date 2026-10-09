@@ -11,7 +11,6 @@ const Profile = () => {
   const [form, setForm] = useState({
     name: profile?.name || '',
     phone: profile?.phone || '',
-    studentId: profile?.studentId || '',
     foodPreference: profile?.foodPreference || 'vegetarian',
   });
   const [loading, setLoading] = useState(false);
@@ -23,7 +22,6 @@ const Profile = () => {
       setForm({
         name: profile.name || '',
         phone: profile.phone || '',
-        studentId: profile.studentId || '',
         foodPreference: profile.foodPreference || 'vegetarian',
       });
     }
@@ -35,7 +33,11 @@ const Profile = () => {
     setError('');
     setMessage('');
     try {
-      await updateProfile(form);
+      await updateProfile({
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        foodPreference: form.foodPreference,
+      });
       setMessage('Profile updated successfully!');
     } catch (err) {
       setError(err.response?.data?.message || 'Update failed');
@@ -59,6 +61,7 @@ const Profile = () => {
             <p><strong>Email:</strong> {profile?.email}</p>
             <p><strong>Student ID:</strong> {profile?.studentId || '—'}</p>
             <p><strong>Food Preference:</strong> {prefLabel[profile?.foodPreference]}</p>
+            <p><strong>Hostel:</strong> {profile?.hostel || '—'}{profile?.roomNumber ? ` · Room ${profile.roomNumber}` : ''}</p>
           </div>
         </div>
 
@@ -85,18 +88,9 @@ const Profile = () => {
             />
           </div>
           <div className="form-group">
-            <label htmlFor="studentId">Student ID</label>
-            <input
-              id="studentId"
-              value={form.studentId}
-              onChange={(e) => setForm({ ...form, studentId: e.target.value })}
-            />
-          </div>
-
-          <div className="form-group">
             <label>Food Preference</label>
             <div className="preference-cards">
-              <label className={`pref-card ${form.foodPreference === 'vegetarian' ? 'selected' : ''}`}>
+              <label className={`pref-card ${form.foodPreference === 'vegetarian' ? 'selected-veg' : ''}`}>
                 <input
                   type="radio"
                   name="foodPreference"
@@ -105,9 +99,10 @@ const Profile = () => {
                   onChange={(e) => setForm({ ...form, foodPreference: e.target.value })}
                 />
                 <span className="pref-icon">🥗</span>
-                <span className="pref-label">Vegetarian</span>
+                <span className="pref-title">Vegetarian</span>
+                <span className="pref-sub">🥗 Veg meals</span>
               </label>
-              <label className={`pref-card ${form.foodPreference === 'non-vegetarian' ? 'selected' : ''}`}>
+              <label className={`pref-card ${form.foodPreference === 'non-vegetarian' ? 'selected-nonveg' : ''}`}>
                 <input
                   type="radio"
                   name="foodPreference"
@@ -116,13 +111,18 @@ const Profile = () => {
                   onChange={(e) => setForm({ ...form, foodPreference: e.target.value })}
                 />
                 <span className="pref-icon">🍗</span>
-                <span className="pref-label">Non-Vegetarian</span>
+                <span className="pref-title">Non-Vegetarian</span>
+                <span className="pref-sub">🍗 Includes non-veg meals</span>
               </label>
             </div>
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            Save Changes
+          <button type="submit" className="btn btn-primary" disabled={loading || (
+            form.name === (profile?.name || '') &&
+            form.phone === (profile?.phone || '') &&
+            form.foodPreference === (profile?.foodPreference || 'vegetarian')
+          )}>
+            {loading ? 'Saving…' : 'Save Changes'}
           </button>
         </form>
       </div>

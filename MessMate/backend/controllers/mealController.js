@@ -167,28 +167,56 @@ export const getExpectedDemand = async (req, res) => {
     const { date, mealType } = req.query;
     const targetDate = startOfDay(date);
     const meals = mealType ? [mealType] : ['breakfast', 'lunch', 'dinner'];
-
-    let totalStudents = 200;
-    let leaveCount = 25;
+    const targetEnd = endOfDay(date);
+    let students = [];
+    let onLeave = [];
     let checkIns = [];
 
     if (mongoose.connection.readyState === 1) {
-      totalStudents = await User.countDocuments({ role: 'student', isActive: true });
-
-      const onLeave = await LeaveRequest.find({
+      students = await User.find({ role: 'student', isActive: true })
+        .select('firebaseUid foodPreference')
+        .lean();
+      onLeave = await LeaveRequest.find({
         status: 'approved',
         fromDate: { $lte: targetDate },
         toDate: { $gte: targetDate },
       }).distinct('firebaseUid');
-
-      leaveCount = onLeave.length;
+      checkIns = await MealAttendance.find({
+        date: { $gte: targetDate, $lte: targetEnd },
+        mealType: { $in: meals },
+      }).select('firebaseUid mealType status foodPreference').lean();
+    } else {
+      checkIns = mockAttendance.filter(
+        (record) => record.date >= targetDate && record.date <= targetEnd && meals.includes(record.mealType)
+      );
     }
 
-    const baseExpected = Math.max(0, totalStudents - leaveCount);
-    const safetyMargin = parseFloat(process.env.SAFETY_MARGIN_PERCENT || 5);
+    const activeStudentIds = new Set(students.map((student) => student.firebaseUid));
+    const studentsOnLeave = new Set(onLeave.filter((uid) => activeStudentIds.has(uid)));
+    const studentPreferences = new Map(students.map((student) => [student.firebaseUid, student.foodPreference]));
+    const totalStudents = students.length;
+    const safetyMarginSetting = Number.parseFloat(process.env.SAFETY_MARGIN_PERCENT || '5');
+    const safetyMargin = Number.isFinite(safetyMarginSetting) ? safetyMarginSetting : 5;
 
     const results = meals.map((meal) => {
-      const expectedFromCheckIns = baseExpected;
+      const mealResponses = checkIns.filter((record) => {
+        if (record.mealType !== meal || studentsOnLeave.has(record.firebaseUid)) return false;
+        return mongoose.connection.readyState !== 1 || activeStudentIds.has(record.firebaseUid);
+      });
+      const respondedStudents = new Set(mealResponses.map((record) => record.firebaseUid));
+      const taking = mealResponses.filter((record) => record.status === 'taking');
+      const notTakingCount = mealResponses.filter((record) => record.status === 'not-taking').length;
+      const leaveCount = studentsOnLeave.size;
+      const notResponded = Math.max(0, totalStudents - leaveCount - respondedStudents.size);
+      const vegetarian = taking.filter(
+        (record) => studentPreferences.get(record.firebaseUid) === 'vegetarian' ||
+          (!studentPreferences.has(record.firebaseUid) && record.foodPreference === 'vegetarian')
+      ).length;
+      const nonVegetarian = taking.filter(
+        (record) => studentPreferences.get(record.firebaseUid) === 'non-vegetarian' ||
+          (!studentPreferences.has(record.firebaseUid) && record.foodPreference === 'non-vegetarian')
+      ).length;
+      const expectedFromCheckIns = taking.length;
       const recommended = Math.ceil(expectedFromCheckIns * (1 + safetyMargin / 100));
 
       return {
@@ -197,11 +225,14 @@ export const getExpectedDemand = async (req, res) => {
         totalRegistered: totalStudents,
         onApprovedLeave: leaveCount,
         expectedStudents: expectedFromCheckIns,
-        vegetarian: Math.round(baseExpected * 0.65),
-        nonVegetarian: Math.round(baseExpected * 0.35),
+        confirmedEating: expectedFromCheckIns,
+        notTaking: notTakingCount,
+        notResponded,
+        vegetarian,
+        nonVegetarian,
         safetyMarginPercent: safetyMargin,
         recommendedPreparation: recommended,
-        basedOn: 'registered-minus-leave',
+        basedOn: 'meal-check-ins',
       };
     });
 

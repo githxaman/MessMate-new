@@ -54,6 +54,9 @@ const Header = () => {
             </>
           ) : (
             <>
+              <Link to="/admin/login" className="btn btn-outline btn-sm">
+                Admin
+              </Link>
               <Link to="/login" className="btn btn-outline btn-sm">
                 Login
               </Link>

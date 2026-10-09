@@ -27,14 +27,13 @@ const staffLinks = [
 
 const adminLinks = [
   { to: '/admin/dashboard', label: '📊 Dashboard' },
+  { to: '/admin/users', label: '🎓 Students' },
+  { to: '/admin/staff', label: '👥 Staff & Admins' },
   { to: '/staff/menu', label: '📋 Menu' },
-  { to: '/staff/attendance', label: '👥 Meal Attendance' },
-  { to: '/reports?tab=demand', label: '📉 Food Demand' },
   { to: '/leave', label: '📝 Leave Requests' },
-  { to: '/food-waste', label: '♻️ Food Waste' },
-  { to: '/feedback', label: '⭐ Feedback' },
-  { to: '/reports', label: '📈 Reports' },
   { to: '/admin/verification', label: '🛡️ Student Verification' },
+  { to: '/reports', label: '📈 Reports' },
+  { to: '/admin/settings', label: '⚙️ Settings' },
 ];
 
 const Navbar = () => {

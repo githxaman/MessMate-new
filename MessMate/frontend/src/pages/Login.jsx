@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { firebaseConfigured } from '../config/firebase';
+import { DEMO_PASSWORD } from '../config/demoAccounts';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -66,8 +68,20 @@ const Login = () => {
           </button>
         </form>
 
+        {import.meta.env.DEV && !firebaseConfigured && (
+          <aside className="admin-demo-credentials">
+            <strong>Local demo student account</strong>
+            <span>Email: <code>student@messmate.local</code></span>
+            <span>Password: <code>{DEMO_PASSWORD}</code></span>
+            <small>You can also sign in with an account created through student registration.</small>
+          </aside>
+        )}
+
         <p className="auth-footer">
           Don&apos;t have an account? <Link to="/register">Register</Link>
+        </p>
+        <p className="auth-footer">
+          Mess administrator? <Link to="/admin/login">Admin sign in</Link>
         </p>
       </div>
     </div>

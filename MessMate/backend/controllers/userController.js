@@ -1,6 +1,144 @@
 import mongoose from 'mongoose';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import User from '../models/User.js';
 import AuthorizedStudent from '../models/AuthorizedStudent.js';
+
+const DEMO_STUDENT_EMAIL = 'student@messmate.local';
+const DEMO_STUDENT_PASSWORD = 'MessMateDemo123!';
+
+const demoAuthEnabled = () =>
+  process.env.NODE_ENV !== 'production' &&
+  ((process.env.FIREBASE_PROJECT_ID || '').toLowerCase().startsWith('demo-') ||
+    process.env.ALLOW_DEMO_REGISTRATION === 'true');
+
+const hashDemoPassword = (password) => {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+};
+
+const verifyDemoPassword = (password, storedHash) => {
+  const [salt, expectedHash] = (storedHash || '').split(':');
+  if (!salt || !expectedHash) return false;
+  const actualHash = scryptSync(password, salt, 64);
+  const expected = Buffer.from(expectedHash, 'hex');
+  return actualHash.length === expected.length && timingSafeEqual(actualHash, expected);
+};
+
+export const registerDemoStudent = async (req, res) => {
+  try {
+    if (!demoAuthEnabled()) {
+      return res.status(404).json({ message: 'Demo registration is not enabled' });
+    }
+    if (!requireDatabase(res)) return;
+
+    const {
+      name, email, password, phone, studentId, department, semester,
+      hostel, roomNumber, foodPreference,
+    } = req.body;
+    const cleanEmail = normalizeEmail(email);
+    if (!name?.trim() || !cleanEmail || !password || !studentId?.trim() ||
+      !department || !semester || !hostel || !roomNumber || !phone ||
+      !['vegetarian', 'non-vegetarian'].includes(foodPreference)) {
+      return res.status(400).json({ message: 'Please complete all required registration fields' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    const existing = await User.findOne({
+      $or: [
+        { email: cleanEmail },
+        { studentId: studentId.trim().toUpperCase() },
+      ],
+    }).select('_id email studentId');
+    if (existing) {
+      const duplicateField = existing.email === cleanEmail ? 'email' : 'student ID';
+      return res.status(409).json({ message: `An account with this ${duplicateField} already exists` });
+    }
+
+    const firebaseUid = `demo-student-${randomUUID()}`;
+    const user = await User.create({
+      firebaseUid,
+      demoPasswordHash: hashDemoPassword(password),
+      name: name.trim(),
+      email: cleanEmail,
+      phone: phone.trim(),
+      studentId: studentId.trim().toUpperCase(),
+      department: department.trim(),
+      semester,
+      hostel: hostel.trim(),
+      roomNumber: roomNumber.trim(),
+      isVerified: true,
+      foodPreference,
+      role: 'student',
+      isActive: true,
+    });
+
+    return res.status(201).json({
+      message: 'Demo student account created',
+      token: `demo-token-${firebaseUid}`,
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'An account with this email or student ID already exists' });
+    }
+    return res.status(500).json({ message: 'Demo registration failed', error: error.message });
+  }
+};
+
+export const loginDemoStudent = async (req, res) => {
+  try {
+    if (!demoAuthEnabled()) {
+      return res.status(404).json({ message: 'Demo sign-in is not enabled' });
+    }
+    if (!requireDatabase(res)) return;
+
+    const email = normalizeEmail(req.body.email);
+    const { password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    let user = await User.findOne({ email, role: 'student' }).select('+demoPasswordHash');
+    if (!user && email === DEMO_STUDENT_EMAIL && password === DEMO_STUDENT_PASSWORD) {
+      const firebaseUid = 'demo-student-shared-account';
+      user = await User.findOne({ firebaseUid }).select('+demoPasswordHash');
+      if (!user) {
+        user = await User.create({
+          firebaseUid,
+          demoPasswordHash: hashDemoPassword(DEMO_STUDENT_PASSWORD),
+          name: 'Demo Student',
+          email: DEMO_STUDENT_EMAIL,
+          studentId: 'DEMO-STUDENT-001',
+          department: 'Computer Science',
+          semester: '1st Semester',
+          hostel: 'Hostel A',
+          roomNumber: '101',
+          isVerified: true,
+          foodPreference: 'vegetarian',
+          role: 'student',
+          isActive: true,
+        });
+      }
+    }
+
+    if (!user || !user.demoPasswordHash || !verifyDemoPassword(password, user.demoPasswordHash)) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'This account is inactive. Contact the mess administrator.' });
+    }
+
+    return res.json({
+      token: `demo-token-${user.firebaseUid}`,
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Demo sign-in failed', error: error.message });
+  }
+};
 
 const requireDatabase = (res) => {
   if (mongoose.connection.readyState !== 1) {

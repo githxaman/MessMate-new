@@ -10,7 +10,7 @@ const mealIcons = {
 const MealCheck = () => {
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [savingMeal, setSavingMeal] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -18,8 +18,9 @@ const MealCheck = () => {
     try {
       const { data } = await mealAPI.getToday();
       setMeals(data.meals || []);
+      setError('');
     } catch (err) {
-      setError('Failed to load meal status');
+      setError(err.response?.data?.message || 'Could not load meal status. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -30,18 +31,21 @@ const MealCheck = () => {
   }, []);
 
   const handleMealSelection = async (mealType, statusChoice) => {
-    setSubmitting(true);
+    setSavingMeal(mealType);
     setMessage('');
     setError('');
     try {
       await mealAPI.checkIn({ mealType, status: statusChoice });
+      setMeals((current) => current.map((meal) =>
+        meal.mealType === mealType ? { ...meal, checked: true, status: statusChoice } : meal
+      ));
       const label = statusChoice === 'taking' ? "YES, I'll Eat" : "NO, I Won't Eat";
       setMessage(`Successfully updated ${mealType} status to "${label}"`);
       await loadToday();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update meal status');
     } finally {
-      setSubmitting(false);
+      setSavingMeal('');
     }
   };
 
@@ -56,15 +60,26 @@ const MealCheck = () => {
         </div>
       </div>
 
-      <div className="table-card" style={{ textAlign: 'center', padding: '2rem 1.5rem', marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ea580c' }}>
-          Will you take today's meal?
-        </h2>
-        <p className="text-muted">Select your attendance for Breakfast, Lunch, and Dinner below.</p>
+      <div className="meal-check-intro">
+        <span aria-hidden="true">🥗</span>
+        <div>
+          <span className="student-section-kicker">HELP THE MESS PLAN SMARTER</span>
+          <h2>What are you eating today?</h2>
+          <p>Confirm each meal so the kitchen can prepare the right amount and waste less.</p>
+        </div>
+        <div className="meal-check-progress">
+          <strong>{meals.filter((meal) => meal.status).length}/3</strong>
+          <span>answered</span>
+        </div>
       </div>
 
       {message && <div className="alert alert-success">{message}</div>}
       {error && <div className="alert alert-error">{error}</div>}
+      {!loading && error && (
+        <button type="button" className="btn btn-outline meal-retry" onClick={loadToday}>
+          ↻ Reload meal status
+        </button>
+      )}
 
       {loading ? (
         <div className="loading-screen">
@@ -78,9 +93,9 @@ const MealCheck = () => {
             const currentStatus = record?.status;
 
             return (
-              <div key={type} className="meal-check-card">
+              <div key={type} className={`meal-check-card ${currentStatus === 'taking' ? 'meal-choice-taking' : currentStatus === 'not-taking' ? 'meal-choice-skipping' : ''}`}>
                 <div className="meal-check-header">
-                  <span className="meal-check-icon">{mealIcons[type] || '🍽️'}</span>
+                  <span className="meal-check-icon" aria-hidden="true">{mealIcons[type] || '🍽️'}</span>
                   <div className="meal-check-title">{type}</div>
                 </div>
 
@@ -104,19 +119,21 @@ const MealCheck = () => {
                   <button
                     type="button"
                     className={`btn ${currentStatus === 'taking' ? 'btn-meal-yes' : 'btn-outline'}`}
-                    disabled={submitting}
+                    disabled={savingMeal === type}
                     onClick={() => handleMealSelection(type, 'taking')}
+                    aria-pressed={currentStatus === 'taking'}
                   >
-                    YES, I'll Eat
+                    {savingMeal === type ? 'Saving…' : '✓ I’ll eat'}
                   </button>
 
                   <button
                     type="button"
                     className={`btn ${currentStatus === 'not-taking' ? 'btn-meal-no' : 'btn-outline'}`}
-                    disabled={submitting}
+                    disabled={savingMeal === type}
                     onClick={() => handleMealSelection(type, 'not-taking')}
+                    aria-pressed={currentStatus === 'not-taking'}
                   >
-                    NO, I Won't Eat
+                    {savingMeal === type ? 'Saving…' : '✕ I’ll skip'}
                   </button>
                 </div>
               </div>

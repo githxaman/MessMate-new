@@ -5,10 +5,23 @@ import {
   createUserWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
-import { auth } from '../config/firebase';
-import { userAPI } from '../services/api';
+import { auth, firebaseConfigured } from '../config/firebase';
+import { setDemoAuthToken, userAPI } from '../services/api';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../config/demoAccounts';
 
 const AuthContext = createContext(null);
+const DEMO_SESSION_KEY = 'messmate-demo-session';
+
+const createDemoUser = (token, user) => ({
+  uid: user.firebaseUid,
+  email: user.email,
+  getIdToken: async () => token,
+});
+
+const saveDemoSession = (token, user) => {
+  setDemoAuthToken(token);
+  localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({ token, user }));
+};
 
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
@@ -34,6 +47,23 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    const savedDemoSession = localStorage.getItem(DEMO_SESSION_KEY);
+    if (savedDemoSession) {
+      try {
+        const { token, user } = JSON.parse(savedDemoSession);
+        if (token && user?.firebaseUid && user?.email) {
+          setDemoAuthToken(token);
+          setFirebaseUser(createDemoUser(token, user));
+          setProfile(user);
+          setLoading(false);
+          return;
+        }
+      } catch (sessionError) {
+        console.warn('Stored demo session could not be restored:', sessionError);
+      }
+      localStorage.removeItem(DEMO_SESSION_KEY);
+    }
+
     if (!auth || typeof auth.onAuthStateChanged !== 'function') {
       setLoading(false);
       return;
@@ -57,26 +87,39 @@ export const AuthProvider = ({ children }) => {
       try {
         cred = await signInWithEmailAndPassword(auth, email, password);
       } catch (fbErr) {
-        console.warn('Firebase login skipped, using dev demo fallback:', fbErr.message);
-        const role = email.includes('staff') ? 'staff' : email.includes('admin') ? 'admin' : 'student';
-        const demoUser = {
-          uid: `demo-uid-${role}`,
-          email: email,
-          getIdToken: async () => `demo-token-${role}-${Date.now()}`,
-        };
-        const demoProfile = {
-          _id: '650000000000000000000001',
-          name: email.split('@')[0] || 'Demo User',
-          email,
-          role,
-          dietaryPreference: 'veg',
-          roomNumber: '101',
-        };
-        setFirebaseUser(demoUser);
-        setProfile(demoProfile);
-        return { user: demoUser, profile: demoProfile };
+        const normalizedEmail = email.trim().toLowerCase();
+        const demoAccount = DEMO_ACCOUNTS[normalizedEmail];
+        if (!import.meta.env.DEV || firebaseConfigured) {
+          throw fbErr;
+        }
+
+        if (demoAccount && demoAccount.role !== 'student' && password === DEMO_PASSWORD) {
+          const { role, name } = demoAccount;
+          const demoToken = `demo-token-${role}`;
+          const demoProfile = {
+            _id: '650000000000000000000001',
+            firebaseUid: `demo-uid-${role}`,
+            name,
+            email: normalizedEmail,
+            role,
+            foodPreference: 'vegetarian',
+            roomNumber: '101',
+          };
+          saveDemoSession(demoToken, demoProfile);
+          setFirebaseUser(createDemoUser(demoToken, demoProfile));
+          setProfile(demoProfile);
+          return { user: createDemoUser(demoToken, demoProfile), profile: demoProfile };
+        }
+
+        const { data } = await userAPI.loginDemoStudent({ email: normalizedEmail, password });
+        saveDemoSession(data.token, data.user);
+        setFirebaseUser(createDemoUser(data.token, data.user));
+        setProfile(data.user);
+        return { user: createDemoUser(data.token, data.user), profile: data.user };
       }
 
+      setDemoAuthToken(null);
+      localStorage.removeItem(DEMO_SESSION_KEY);
       const userProfile = await fetchProfile();
       if (!userProfile) {
         throw new Error('Profile not found. Please complete registration.');
@@ -84,9 +127,10 @@ export const AuthProvider = ({ children }) => {
       return { user: cred.user, profile: userProfile };
     } catch (err) {
       const message =
-        err.code === 'auth/invalid-credential'
+        err.response?.data?.message ||
+        (err.code === 'auth/invalid-credential'
           ? 'Invalid email or password'
-          : err.message || 'Login failed';
+          : err.message || 'Login failed');
       setError(message);
       throw new Error(message);
     }
@@ -95,6 +139,14 @@ export const AuthProvider = ({ children }) => {
   const register = async (email, password, userData) => {
     setError(null);
     try {
+      if (import.meta.env.DEV && !firebaseConfigured) {
+        const { data } = await userAPI.registerDemoStudent({ ...userData, password });
+        saveDemoSession(data.token, data.user);
+        setFirebaseUser(createDemoUser(data.token, data.user));
+        setProfile(data.user);
+        return { user: createDemoUser(data.token, data.user), profile: data.user };
+      }
+
       await userAPI.verifyStudent({
         studentId: userData.studentId,
         collegeEmail: userData.email,
@@ -130,20 +182,16 @@ export const AuthProvider = ({ children }) => {
         await signOut(auth);
       }
     } catch (_) {}
+    setDemoAuthToken(null);
+    localStorage.removeItem(DEMO_SESSION_KEY);
     setFirebaseUser(null);
     setProfile(null);
   };
 
   const updateProfile = async (data) => {
-    try {
-      const { data: res } = await userAPI.updateProfile(data);
-      setProfile(res.user);
-      return res.user;
-    } catch {
-      const updated = { ...profile, ...data };
-      setProfile(updated);
-      return updated;
-    }
+    const { data: response } = await userAPI.updateProfile(data);
+    setProfile(response.user);
+    return response.user;
   };
 
   const refreshProfile = fetchProfile;

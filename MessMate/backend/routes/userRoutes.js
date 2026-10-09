@@ -11,6 +11,8 @@ import {
   updateAuthorizedStudent,
   deleteAuthorizedStudent,
   verifyAuthorizedStudent,
+  registerDemoStudent,
+  loginDemoStudent,
 } from '../controllers/userController.js';
 import { authenticate, authorize } from '../middleware/authMiddleware.js';
 import multer from 'multer';
@@ -20,6 +22,8 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.post('/register', registerUser);
+router.post('/demo/register', registerDemoStudent);
+router.post('/demo/login', loginDemoStudent);
 router.post('/verify-student', verifyAuthorizedStudent);
 router.get('/profile', authenticate, getProfile);
 router.put('/profile', authenticate, updateProfile);
